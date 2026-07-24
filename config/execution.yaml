@@ -1,0 +1,4 @@
+max_phases: 10
+max_retries_per_phase: 2
+max_total_calls: 25
+max_file_size_chars: 50000
