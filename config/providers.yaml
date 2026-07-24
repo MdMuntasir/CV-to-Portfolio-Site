@@ -1,0 +1,12 @@
+gemini:
+  base_url: "https://generativelanguage.googleapis.com/v1beta/openai/"
+  api_key_env: "GEMINI_API_KEY"
+openrouter:
+  base_url: "https://openrouter.ai/api/v1"
+  api_key_env: "OPENROUTER_API_KEY"
+zenmux:
+  base_url: "https://zenmux.ai/api/v1"
+  api_key_env: "ZENMUX_API_KEY"
+opencode:
+  base_url: "https://opencode.ai/api/v1"
+  api_key_env: "OPENCODE_API_KEY"

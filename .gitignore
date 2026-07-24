@@ -1,0 +1,13 @@
+# Ephemeral per-run working dirs (kept on failure, deleted on success)
+runs/
+# Final generated sites
+output/
+# Secrets
+.env
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+*.egg-info/
+.pytest_cache/

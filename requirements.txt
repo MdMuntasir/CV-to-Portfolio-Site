@@ -1,0 +1,6 @@
+# --- Phase 1 dependencies ---
+pypdf>=4.0.0          # PDF text extraction (Phase 2)
+PyYAML>=6.0           # config loading
+python-dotenv>=1.0.0  # .env loading
+requests>=2.31.0      # OpenAI-compatible HTTP client
+# CLI: uses stdlib argparse (zero extra deps)
