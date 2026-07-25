@@ -1,9 +1,11 @@
 thinking:
   provider: zenmux
-  model: "z-ai/glm-5.2-free"
+  model: "z-ai/glm-4.7-flash-free"
+
 execution:
-  provider: zenmux
-  model: "kuaishou/kat-coder-pro-v1-free"
+  provider: openrouter
+  model: "openrouter/free"
+
 quick:
-  provider: gemini
-  model: "gemini-2.0-flash"
+  provider: openrouter
+  model: "openrouter/free"

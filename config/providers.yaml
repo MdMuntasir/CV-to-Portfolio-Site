@@ -8,5 +8,5 @@ zenmux:
   base_url: "https://zenmux.ai/api/v1"
   api_key_env: "ZENMUX_API_KEY"
 opencode:
-  base_url: "https://opencode.ai/api/v1"
+  base_url: "https://opencode.ai/zen/v1"
   api_key_env: "OPENCODE_API_KEY"

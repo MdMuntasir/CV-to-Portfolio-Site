@@ -21,6 +21,8 @@ def run_extract(client, run_state, cv_pdf=None, cv_text=None):
         raw_text = "\n\n".join(pages)
     elif cv_text:
         raw_text = cv_text
+    elif run_state.read_markdown("full_text.md"):
+        raw_text = run_state.read_markdown("full_text.md")
     else:
         raise ValueError("Either cv_pdf or cv_text must be provided")
 
