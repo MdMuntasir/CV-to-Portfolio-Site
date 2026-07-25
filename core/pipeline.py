@@ -17,14 +17,34 @@ def _artifact_exists(run_state, filename):
     return path.is_file() and path.stat().st_size > 0
 
 
+def _all_phases_done(run_state):
+    """True only if todo.json exists and every phase has status 'done'."""
+    if not _artifact_exists(run_state, "todo.json"):
+        return False
+    try:
+        phases = run_state.load_todo()
+    except Exception:
+        return False
+    if not phases:
+        return False
+    return all(p.get("status") == "done" for p in phases)
+
+
 def _skip_stage(run_state, stage_name):
+    # execute_loop is only complete when ALL todo phases are done — the presence
+    # of site/index.html only means phase 1 ran, not the whole plan.
+    if stage_name == "execute_loop":
+        return _all_phases_done(run_state)
+
     artifacts = {
         "extract": ["full_text.md", "summary.md"],
         "classify": ["portfolio_type.json"],
         "ui_ux_spec": ["ui_ux_spec.json"],
         "todo_plan": ["todo.json"],
     }
-    required = artifacts.get(stage_name, [])
+    required = artifacts.get(stage_name)
+    if required is None:
+        return False
     return all(_artifact_exists(run_state, f) for f in required)
 
 
@@ -50,7 +70,10 @@ def run_pipeline(client, cv_pdf=None, cv_text=None, resume_run_id=None, output_d
             continue
         logger.info("Stage [%s] starting", name)
         try:
-            fn()
+            result = fn()
+            if name == "execute_loop" and isinstance(result, dict) and not result.get("success", True):
+                failed_phases = result.get("failed_phases", [])
+                raise RuntimeError(f"Execute loop failed: phases {failed_phases} did not complete successfully")
             logger.info("Stage [%s] complete", name)
         except Exception as e:
             logger.error("Stage [%s] failed: %s — run dir preserved at %s", name, e, run_state.run_dir)

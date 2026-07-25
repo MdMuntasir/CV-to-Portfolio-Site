@@ -2,25 +2,39 @@ import logging
 import json
 import shutil
 from pathlib import Path
-from core.state import RunStateError, extract_json
+from core.state import RunStateError, extract_json, call_with_json_repair
 
 logger = logging.getLogger(__name__)
 
 EXEC_CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "execution.yaml"
 
 EXEC_SYSTEM_PROMPT = (
-    "You are an expert web developer generating files for a static portfolio website. "
-    "You will receive a build phase with instructions and relevant context files. "
-    "Output ONLY a JSON object with a single key \"files\" containing an array of file "
-    "objects. Each file object must have:\n"
-    "- \"path\": relative path from site root (e.g., \"index.html\", \"styles/main.css\")\n"
+    "You are an expert web developer generating files for a static portfolio "
+    "website. You will receive a build phase with instructions and relevant "
+    "context files. Output ONLY a JSON object with a single key \"files\" "
+    "containing an array of file objects. Each file object must have:\n"
+    "- \"path\": relative path from site root (e.g., \"index.html\", "
+    "\"styles/main.css\")\n"
     "- \"content\": full file content as a string\n\n"
+    "HARD CONSTRAINT: The output must be implementable as PLAIN HTML + CSS + "
+    "vanilla JavaScript only. NO frameworks (React, Vue, Svelte, etc.), NO "
+    "build tools (Vite, Webpack, etc.), NO npm packages, NO TypeScript. The "
+    "generated site must open directly in a browser from the file system. "
+    "Features requiring a build step or server-side runtime (e.g., MDX, "
+    "serverless functions, real-time GitHub API calls, WebAssembly, Mermaid.js "
+    "interactive rendering) are PROHIBITED. Use only: semantic HTML5, CSS3 "
+    "(custom properties, flexbox/grid, animations), vanilla ES6+ JS (fetch, "
+    "IntersectionObserver, localStorage). External resources allowed ONLY via "
+    "CDN links (Google Fonts, icon SVGs).\n\n"
     "Requirements:\n"
     "- Produce valid HTML5, CSS3, and vanilla ES6 JavaScript only.\n"
-    "- No frameworks, no build tools, no external dependencies (CDN links OK for fonts/icons).\n"
+    "- No frameworks, no build tools, no external dependencies (CDN links OK "
+    "for fonts/icons).\n"
     "- Files must be complete and ready to open directly in a browser.\n"
-    "- Follow the UI/UX spec exactly: colors, typography, spacing, responsive breakpoints.\n"
-    "- Ensure accessibility (semantic HTML, ARIA where needed, contrast ratios).\n"
+    "- Follow the UI/UX spec exactly: colors, typography, spacing, responsive "
+    "breakpoints.\n"
+    "- Ensure accessibility (semantic HTML, ARIA where needed, contrast "
+    "ratios).\n"
     "- Mobile-first responsive design.\n"
     "- Write clean, organized code with comments for maintainability.\n"
     "- Output ONLY the JSON object. No markdown, no explanation, no extra text."
@@ -166,8 +180,7 @@ def run_execute_loop(client, run_state):
             if total_calls > max_total_calls:
                 raise RuntimeError(f"Max total LLM calls exceeded ({max_total_calls})")
 
-            raw = client.chat("execution", messages, max_tokens=8000)
-            result = extract_json(raw)
+            result = call_with_json_repair(client, "execution", messages, max_tokens=8000)
             files = result.get("files", [])
 
             if not files:
@@ -186,4 +199,10 @@ def run_execute_loop(client, run_state):
             run_state.save_todo(phases)
 
     run_state.save_todo(phases)
-    return {"phases_completed": completed_phases, "total_calls": total_calls}
+
+    # Check if any phases failed and didn't exhaust retries
+    failed_phases = [p for p in phases if p.get("status") == "failed" and p.get("retries", 0) <= max_retries]
+    if failed_phases:
+        return {"phases_completed": completed_phases, "total_calls": total_calls, "success": False, "failed_phases": [p["id"] for p in failed_phases]}
+    
+    return {"phases_completed": completed_phases, "total_calls": total_calls, "success": True}

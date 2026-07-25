@@ -5,7 +5,17 @@ UI_UX_SYSTEM_PROMPT = (
     "You are a UI/UX designer planning a portfolio website. "
     "Based on the CV summary and portfolio type below, create a comprehensive "
     "UI/UX specification. Design choices must align with the portfolio type "
-    "and be justified by the CV content."
+    "and be justified by the CV content.\n\n"
+    "HARD CONSTRAINT: The output must be implementable as PLAIN HTML + CSS + "
+    "vanilla JavaScript only. NO frameworks (React, Vue, Svelte, etc.), NO "
+    "build tools (Vite, Webpack, etc.), NO npm packages, NO TypeScript. The "
+    "generated site must open directly in a browser from the file system. "
+    "Features requiring a build step or server-side runtime (e.g., MDX, "
+    "serverless functions, real-time GitHub API calls, WebAssembly) are "
+    "PROHIBITED. Use only: semantic HTML5, CSS3 (custom properties, "
+    "flexbox/grid, animations), vanilla ES6+ JS (fetch, IntersectionObserver, "
+    "localStorage). External resources allowed ONLY via CDN links (Google "
+    "Fonts, icon SVGs)."
 )
 
 
