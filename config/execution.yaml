@@ -1,4 +1,46 @@
+# Free mode toggle: set to true for Gemini Free Tier (rate-limited operation).
+# When enabled, roles from free_mode_roles in roles.yaml are used,
+# and Gemini API rate limits (RPM/TPM/RPD) are automatically respected.
+free_mode: false
+
+# Per-model rate limits for Gemini Free Tier (applied only when free_mode: true)
+rate_limits:
+  gemini-3.5-flash:
+    rpm: 10
+    tpm: 250000
+    rpd: 1500
+  gemini-3.1-flash-lite:
+    rpm: 15
+    tpm: 250000
+    rpd: 1000
+  gemini-3.1-pro-preview:
+    rpm: 5
+    tpm: 250000
+    rpd: 100
+  gemini-2.5-pro:
+    rpm: 5
+    tpm: 250000
+    rpd: 100
+  gemini-2.5-flash:
+    rpm: 10
+    tpm: 250000
+    rpd: 250
+  gemini-2.5-flash-lite:
+    rpm: 15
+    tpm: 250000
+    rpd: 1000
+  gemini-2.0-flash:
+    rpm: 15
+    tpm: 1000000
+    rpd: 1500
+  gemini-2.0-flash-lite:
+    rpm: 30
+    tpm: 1000000
+    rpd: 1500
+
+# Execution loop caps
 max_phases: 10
 max_retries_per_phase: 2
 max_total_calls: 25
 max_file_size_chars: 50000
+max_tokens_execution: 50000

@@ -1,3 +1,4 @@
+# Default roles (used when free_mode: false in config/execution.yaml)
 thinking:
   provider: openrouter
   model: "nvidia/nemotron-3-ultra-550b-a55b:free"
@@ -5,7 +6,24 @@ thinking:
 execution:
   provider: openrouter
   model: "nvidia/nemotron-3-ultra-550b-a55b:free"
+  fallback_model: "openrouter/free"
 
 quick:
   provider: openrouter
   model: "openrouter/free"
+
+# Free tier roles (used when free_mode: true in config/execution.yaml)
+# Configured for Gemini Free Tier with fallback support
+free_mode_roles:
+  thinking:
+    provider: gemini
+    model: "gemini-3.5-flash"
+
+  execution:
+    provider: gemini
+    model: "gemini-3.5-flash"
+    fallback_model: "gemini-3.1-flash-lite"
+
+  quick:
+    provider: gemini
+    model: "gemini-2.5-flash-lite"

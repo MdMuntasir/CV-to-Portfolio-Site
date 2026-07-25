@@ -43,6 +43,12 @@ def build_parser():
         default=None,
         help="Override max provider retry attempts",
     )
+    gen.add_argument(
+        "--free",
+        action="store_true",
+        default=None,
+        help="Enable Gemini Free Tier mode (overrides config/free_mode)",
+    )
 
     res = sub.add_parser("resume", help="Resume a previously failed run")
     res.add_argument("--run-id", type=str, required=True, help="Run ID to resume")
@@ -51,6 +57,12 @@ def build_parser():
         type=str,
         default=None,
         help="Output directory (default: output/<run_id>)",
+    )
+    res.add_argument(
+        "--free",
+        action="store_true",
+        default=None,
+        help="Enable Gemini Free Tier mode (overrides config/free_mode)",
     )
 
     return parser
@@ -94,6 +106,8 @@ def cmd_generate(args):
     client_kwargs = {}
     if args.max_attempts is not None:
         client_kwargs["max_attempts"] = args.max_attempts
+    if args.free is not None:
+        client_kwargs["free_mode"] = args.free
 
     try:
         client = ProviderClient(**client_kwargs)
@@ -136,7 +150,10 @@ def cmd_resume(args):
     try:
         from core.pipeline import run_pipeline as _rp
 
-        client = ProviderClient()
+        client_kwargs = {}
+        if args.free is not None:
+            client_kwargs["free_mode"] = args.free
+        client = ProviderClient(**client_kwargs)
         _rp(
             client,
             resume_run_id=run_id,

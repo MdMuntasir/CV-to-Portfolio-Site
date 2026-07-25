@@ -1,8 +1,6 @@
 import logging
-import json
-import shutil
 from pathlib import Path
-from core.state import RunStateError, extract_json, call_with_json_repair
+from core.state import call_with_json_repair
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +117,7 @@ def run_execute_loop(client, run_state):
     max_phases = config.get("max_phases", 10)
     max_retries = config.get("max_retries_per_phase", 2)
     max_total_calls = config.get("max_total_calls", 25)
+    max_tokens = config.get("max_tokens_execution", 32000)
 
     phases = run_state.load_todo()
     
@@ -180,7 +179,7 @@ def run_execute_loop(client, run_state):
             if total_calls > max_total_calls:
                 raise RuntimeError(f"Max total LLM calls exceeded ({max_total_calls})")
 
-            result = call_with_json_repair(client, "execution", messages, max_tokens=8000)
+            result = call_with_json_repair(client, "execution", messages, max_tokens=max_tokens)
             files = result.get("files", [])
 
             if not files:

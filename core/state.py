@@ -88,6 +88,40 @@ class RunState:
         return self.read_markdown(filename)
 
 
+def _scan_balanced(text, start_char, end_char):
+    """Yield candidate substrings that are string/escape-aware balanced spans.
+
+    Unlike naive brace counting, this ignores delimiters that appear inside JSON
+    string literals (and their escapes), so JSON whose values contain HTML/CSS/JS
+    (full of `{` `}` and quotes) is matched correctly.
+    """
+    start_idx = text.find(start_char)
+    if start_idx < 0:
+        return
+    depth = 0
+    in_string = False
+    escaped = False
+    for i in range(start_idx, len(text)):
+        ch = text[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == start_char:
+            depth += 1
+        elif ch == end_char:
+            depth -= 1
+            if depth == 0:
+                yield text[start_idx : i + 1]
+                return
+
+
 def extract_json(text):
     match = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
     if match:
@@ -101,20 +135,11 @@ def extract_json(text):
         pass
 
     for start_char, end_char in [("{", "}"), ("[", "]")]:
-        start_idx = text.find(start_char)
-        if start_idx >= 0:
-            depth = 0
-            for i in range(start_idx, len(text)):
-                if text[i] == start_char:
-                    depth += 1
-                elif text[i] == end_char:
-                    depth -= 1
-                    if depth == 0:
-                        candidate = text[start_idx : i + 1]
-                        try:
-                            return json.loads(candidate)
-                        except json.JSONDecodeError:
-                            continue
+        for candidate in _scan_balanced(text, start_char, end_char):
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
 
     raise RunStateError("Could not extract valid JSON from response")
 
@@ -143,6 +168,12 @@ def call_with_json_repair(client, role, messages, **opts):
         except RunStateError as e:
             from core.provider_client import ProviderResponseError
 
+            def _diag(label, s):
+                s = s or ""
+                tail = s[-200:].replace("\n", "\\n")
+                return f"{label}: len={len(s)} tail=…{tail!r}"
+
             raise ProviderResponseError(
-                f"Failed to get valid JSON after repair retry: {e}"
+                f"Failed to get valid JSON after repair retry: {e}. "
+                f"{_diag('attempt1', raw)}; {_diag('attempt2', raw2)}"
             ) from e
