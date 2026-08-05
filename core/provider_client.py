@@ -173,24 +173,32 @@ class ProviderClient:
         role_cfg = self._resolve_role(role)
         provider_name = role_cfg.get("provider")
         model = role_cfg["model"]
-        fallback = role_cfg.get("fallback_model")
+        fallbacks = role_cfg.get("fallback_model", [])
+        if isinstance(fallbacks, str):
+            fallbacks = [fallbacks]
 
         prov_cfg = self._resolve_provider(provider_name, role)
         base_url = str(prov_cfg["base_url"]).rstrip("/")
         api_key = self._resolve_api_key(provider_name, prov_cfg)
 
-        try:
-            return self._chat_with_model(base_url, api_key, model, messages,
-                                         role=role, **opts)
-        except ProviderResponseError as exc:
-            if fallback and self._is_retryable_error(exc):
-                logger.info(
-                    "Model %s failed for role %s, falling back to %s",
-                    model, role, fallback,
-                )
-                return self._chat_with_model(base_url, api_key, fallback,
-                                             messages, role=role, **opts)
-            raise
+        models_to_try = [model] + fallbacks
+        last_exc = None
+        for m in models_to_try:
+            try:
+                return self._chat_with_model(base_url, api_key, m, messages,
+                                             role=role, **opts)
+            except ProviderResponseError as exc:
+                if self._is_retryable_error(exc):
+                    last_exc = exc
+                    if m != models_to_try[-1]:
+                        logger.info(
+                            "Model %s failed for role %s, falling back to next model",
+                            m, role,
+                        )
+                    continue
+                raise
+
+        raise last_exc
 
     # ------------------------------------------------------------------
     # Internal helpers

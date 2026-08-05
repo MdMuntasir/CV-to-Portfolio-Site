@@ -90,12 +90,16 @@ def _read_site_file(run_state, rel_path):
 
 
 def _collect_context_files(run_state, phase):
-    target_files = phase.get("target_files", [])
+    site_dir = run_state.run_dir / "site"
     context = {}
-    for rel_path in target_files:
-        content = _read_site_file(run_state, rel_path)
-        if content:
-            context[rel_path] = content
+    if site_dir.is_dir():
+        for f in sorted(site_dir.rglob("*")):
+            if f.is_file():
+                rel = f.relative_to(site_dir).as_posix()
+                try:
+                    context[rel] = f.read_text(encoding="utf-8")
+                except Exception:
+                    pass
     return context
 
 
