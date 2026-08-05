@@ -2,25 +2,26 @@ from core.state import call_with_json_repair
 
 
 TODO_SYSTEM_PROMPT = (
-    "You are a project planner breaking down a portfolio website build "
-    "into ordered phases. Based on the UI/UX spec and full CV text below, "
-    "create a detailed build plan. Each phase must be concrete and actionable "
-    "by an automated code-generation model.\n\n"
-    "HARD CONSTRAINT: The output must be implementable as PLAIN HTML + CSS + "
-    "vanilla JavaScript only. NO frameworks (React, Vue, Svelte, etc.), NO "
-    "build tools (Vite, Webpack, etc.), NO npm packages, NO TypeScript. The "
-    "generated site must open directly in a browser from the file system. "
-    "Features requiring a build step or server-side runtime (e.g., MDX, "
-    "serverless functions, real-time GitHub API calls, WebAssembly, Mermaid.js "
-    "interactive rendering, Prism.js syntax highlighting) are PROHIBITED. "
-    "External libraries are NOT allowed — only CDN links for Google Fonts and "
-    "icon SVGs (e.g., Lucide, Feather). NO Prism.js, NO Mermaid.js, NO "
-    "Chart.js, NO external CSS frameworks. Use only: semantic HTML5, CSS3 "
-    "(custom properties, flexbox/grid, animations, conic-gradient for skill "
-    "rings), vanilla ES6+ JS (fetch, IntersectionObserver, localStorage). "
-    "Code snippets in project cards must be plain <pre><code> with CSS-only "
-    "styling (no syntax highlighting library). Architecture diagrams must be "
-    "static SVG or ASCII art — no interactive Mermaid rendering."
+    "You are a project planner breaking down a static portfolio website build "
+    "into ordered, atomic phases. Each phase will be executed by an automated "
+    "code-generation model.\n\n"
+    "CRITICAL RULES:\n"
+    "1. Each phase must be SMALL and FOCUSED — create or modify at most 2 "
+    "files. Do NOT bundle multiple independent features into one phase.\n"
+    "2. The execution model receives ONLY the phase instructions and previously "
+    "generated site files — it does NOT have access to the CV or spec "
+    "documents. Therefore you MUST embed the exact text content (headlines, "
+    "skill names and categories, project descriptions with full detail, "
+    "experience bullets, education entries, achievement lists, contact info, "
+    "etc.) directly into each phase's 'instructions' field.\n"
+    "3. Each phase FULLY REWRITES its target files — there is no patching or "
+    "diffing. Design a clean file structure in phase 1 that later phases can "
+    "safely extend by appending new content.\n"
+    "4. All phases are sequential. Each must produce a working intermediate "
+    "state. Design dependencies so nothing breaks across phases.\n"
+    "5. The output is plain HTML5 + CSS3 + vanilla ES6+ JS only (no "
+    "frameworks, no build tools, no npm, no TypeScript). External resources "
+    "only via CDN (Google Fonts, icon SVGs)."
 )
 
 
@@ -36,21 +37,36 @@ def run_todo_plan(client, run_state):
             "role": "user",
             "content": (
                 "Return a JSON object with a single key \"phases\" containing "
-                "an ordered list of phase objects (5-8 phases). Each phase has:\n"
-                '- "id": unique string (e.g. "phase_1")\n'
-                '- "title": short name\n'
-                '- "instructions": detailed build instructions\n'
-                '- "target_files": list of file paths this phase creates\n'
+                "an ordered list of phase objects (aim for 8-10 focused phases). "
+                "Each phase object has:\n"
+                '- "id": unique string (e.g. "phase_1_structure")\n'
+                '- "title": short descriptive name\n'
+                '- "instructions": detailed build instructions — INCLUDE THE '
+                "EXACT CV TEXT (headlines, skill names, project descriptions, "
+                "experience bullets, education entries, achievement lists, "
+                "contact links) inline so the code-generation model can place "
+                "it directly on the page\n"
+                '- "target_files": list of files this phase creates or modifies '
+                "(max 2 files)\n"
                 '- "status": "pending"\n'
-                '- "dependencies": list of phase IDs that must come first\n'
+                '- "dependencies": list of phase IDs that must be done first\n'
                 '- "notes": "" (or additional context)\n\n'
-                "Cover these build phases: HTML structure, CSS styling, "
-                "section-by-section implementation, responsive design, "
-                "interactivity/animations, content population, and polish.\n\n"
-                "IMPORTANT: Do NOT include Prism.js, Mermaid.js, Chart.js, or "
-                "any external JS libraries in target_files. Only plain HTML, "
-                "CSS, and vanilla JS files. Code snippets use plain <pre><code> "
-                "with CSS styling. Architecture diagrams use static SVG.\n\n"
+                "Suggested breakdown (adjust as needed for the specific CV):\n"
+                "1) HTML skeleton + CSS reset/variables + empty JS file\n"
+                "2) Hero section (headline, subtitle, canvas, CTA button)\n"
+                "3) About section (biography text, optional photo)\n"
+                "4) Skills section (categorized tags with exact skill names)\n"
+                "5) Experience timeline (all roles with exact bullets)\n"
+                "6) Project cards (all projects with exact descriptions + "
+                "placeholder modal structure)\n"
+                "7) Project modal interactivity (JS to open/close, populate "
+                "details dynamically)\n"
+                "8) Education + Achievements + Contact sections (exact data)\n"
+                "9) Responsive CSS + hamburger menu markup\n"
+                "10) Navigation, icons, scroll animations, meta tags, polish\n\n"
+                "REMEMBER: The code-generation model CANNOT see the CV text "
+                "below. You MUST copy the actual content into each phase's "
+                "instructions so the builder can populate the page.\n\n"
                 f"UI/UX SPEC:\n{_json.dumps(ui_ux_spec, indent=2)}\n\n"
                 f"FULL CV TEXT:\n---\n{full_text}\n---"
             ),

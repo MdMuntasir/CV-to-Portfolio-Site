@@ -103,6 +103,18 @@ def _collect_context_files(run_state, phase):
     return context
 
 
+def _collect_cv_artifacts(run_state):
+    artifacts = {}
+    for name in ("ui_ux_spec.json", "summary.md"):
+        path = run_state.run_dir / name
+        if path.is_file():
+            try:
+                artifacts[f"[CV_ARTIFACT] {name}"] = path.read_text(encoding="utf-8")
+            except Exception:
+                pass
+    return artifacts
+
+
 def _write_site_files(run_state, files):
     site_dir = run_state.run_dir / "site"
     site_dir.mkdir(parents=True, exist_ok=True)
@@ -158,11 +170,24 @@ def run_execute_loop(client, run_state):
         logger.info("Executing phase: %s (attempt %d/%d)", phase_id, retries + 1, max_retries + 1)
 
         context_files = _collect_context_files(run_state, phase)
-        context_str = ""
+        cv_artifacts = _collect_cv_artifacts(run_state)
+
+        parts = []
         if context_files:
-            context_str = "\n\n".join(
-                f"--- {path} ---\n{content}" for path, content in context_files.items()
+            parts.append(
+                "\n\n".join(
+                    f"--- {path} ---\n{content}"
+                    for path, content in context_files.items()
+                )
             )
+        if cv_artifacts:
+            parts.append(
+                "\n\n".join(
+                    f"--- {path} ---\n{content}"
+                    for path, content in cv_artifacts.items()
+                )
+            )
+        context_str = "\n\n".join(parts) if parts else "(none)"
 
         messages = [
             {"role": "system", "content": EXEC_SYSTEM_PROMPT},
@@ -173,7 +198,7 @@ def run_execute_loop(client, run_state):
                     f"PHASE ID: {phase_id}\n"
                     f"INSTRUCTIONS:\n{phase['instructions']}\n\n"
                     f"TARGET FILES: {phase.get('target_files', [])}\n\n"
-                    f"PREVIOUS FILES CONTEXT:\n{context_str if context_str else '(none)'}"
+                    f"CONTEXT:\n{context_str}"
                 ),
             },
         ]
