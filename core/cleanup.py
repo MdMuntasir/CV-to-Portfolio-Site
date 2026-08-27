@@ -31,6 +31,11 @@ def finalize_site(run_state, output_dir=None):
         elif item.is_dir():
             shutil.copytree(item, output_dir / item.name, dirs_exist_ok=True)
 
+    for md_file in ("full_text.md", "summary.md"):
+        src = run_state.run_dir / md_file
+        if src.is_file():
+            shutil.copy2(src, output_dir / md_file)
+
     logger.info("Finalized site to: %s", output_dir)
     return output_dir
 
