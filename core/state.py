@@ -1,7 +1,10 @@
 import re
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 class RunStateError(Exception):
@@ -88,6 +91,19 @@ class RunState:
         return self.read_markdown(filename)
 
 
+def _repair_invalid_escapes(s: str) -> str:
+    """Sanitize invalid JSON escape sequences.
+
+    JSON only allows: \\\" \\\\ \\/ \\b \\f \\n \\r \\t \\uXXXX
+    Common invalid escapes from LLM-generated CSS/JS: \\s \\d \\w \\S \\D \\W etc.
+    This replaces any backslash not followed by a valid JSON escape char
+    with a double backslash (literal backslash in JSON string).
+    """
+    # Pattern: backslash NOT followed by valid JSON escape chars
+    # Valid escapes: " \ / b f n r t u (and u must be followed by 4 hex digits)
+    return re.sub(r'\\(?!["\\\\/bfnrtu])', r'\\\\', s)
+
+
 def _scan_balanced(text, start_char, end_char):
     """Yield candidate substrings that are string/escape-aware balanced spans.
 
@@ -123,21 +139,45 @@ def _scan_balanced(text, start_char, end_char):
 
 
 def extract_json(text):
-    match = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
-    if match:
-        text = match.group(1)
+    text = text.strip()
+
+    # Robustly strip code fences anywhere in the text
+    # Handles: ```json\n{...}\n```, ```{...}```, ```json{...}```, {...}``` (no newline before closing)
+    text = re.sub(r"```(?:json)?\s*", "", text)
+    text = re.sub(r"\s*```", "", text)
 
     text = text.strip()
 
+    def _try_parse(candidate, label):
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError as e:
+            logger.warning(
+                "JSON parse failed [%s] at line %d col %d (char %d): %s",
+                label, e.lineno, e.colno, e.pos, e.msg
+            )
+            # Try with invalid escape repair
+            try:
+                repaired = _repair_invalid_escapes(candidate)
+                return json.loads(repaired)
+            except json.JSONDecodeError as e2:
+                logger.warning(
+                    "JSON parse failed after escape repair [%s] at line %d col %d (char %d): %s",
+                    label, e2.lineno, e2.colno, e2.pos, e2.msg
+                )
+                raise
+
+    # First attempt: direct parse
     try:
-        return json.loads(text)
+        return _try_parse(text, "direct")
     except json.JSONDecodeError:
         pass
 
+    # Fallback: extract outermost balanced braces/brackets
     for start_char, end_char in [("{", "}"), ("[", "]")]:
         for candidate in _scan_balanced(text, start_char, end_char):
             try:
-                return json.loads(candidate)
+                return _try_parse(candidate, f"balanced_{start_char}{end_char}")
             except json.JSONDecodeError:
                 continue
 

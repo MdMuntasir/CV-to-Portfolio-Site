@@ -29,6 +29,7 @@ class ProviderResponseError(ProviderError):
 DEFAULT_CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
 DEFAULT_MAX_ATTEMPTS = 3
 REQUEST_TIMEOUT = 120
+MAX_TIMEOUT_CAP = 3600
 
 
 class RateLimiter:
@@ -142,6 +143,9 @@ class ProviderClient:
         rate_limits = self._exec_config.get("rate_limits", {})
         self._rate_limiter = RateLimiter(rate_limits) if self.free_mode else None
 
+        # Store execution config for timeout computation
+        self.config = self._exec_config
+
     @staticmethod
     def _load_yaml(path):
         with open(path, "r", encoding="utf-8") as f:
@@ -254,6 +258,12 @@ class ProviderClient:
 
         return result
 
+    def _compute_timeout(self, max_tokens):
+        base = self.config.get("request_timeout", REQUEST_TIMEOUT)
+        per_token = self.config.get("request_timeout_per_token", 0.08)
+        dynamic = max_tokens * per_token
+        return min(max(base, dynamic), MAX_TIMEOUT_CAP)
+
     @staticmethod
     def _is_retryable_error(error):
         s = str(error)
@@ -262,10 +272,13 @@ class ProviderClient:
     def _post_with_retry(self, url, payload, headers, role=None, model_name=None):
         last_exc = None
         label = f"role={role}, model={model_name}" if model_name else "request"
+        max_tokens = payload.get("max_tokens", 32000)
+        base_timeout = self._compute_timeout(max_tokens)
         for attempt in range(1, self.max_attempts + 1):
+            timeout = base_timeout * (1.5 ** (attempt - 1))
             try:
                 resp = self.session.post(
-                    url, json=payload, headers=headers, timeout=REQUEST_TIMEOUT
+                    url, json=payload, headers=headers, timeout=timeout
                 )
             except requests.RequestException as e:
                 last_exc = ProviderResponseError(

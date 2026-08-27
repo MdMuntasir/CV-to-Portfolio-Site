@@ -131,7 +131,7 @@ def _write_site_files(run_state, files):
 def run_execute_loop(client, run_state):
     config = _load_exec_config()
     max_phases = config.get("max_phases", 10)
-    max_retries = config.get("max_retries_per_phase", 2)
+    max_retries = config.get("max_retries_per_phase", 3)
     max_total_calls = config.get("max_total_calls", 25)
     max_tokens = config.get("max_tokens_execution", 32000)
 
