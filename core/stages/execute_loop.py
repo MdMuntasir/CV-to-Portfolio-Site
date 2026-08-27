@@ -35,7 +35,33 @@ EXEC_SYSTEM_PROMPT = (
     "ratios).\n"
     "- Mobile-first responsive design.\n"
     "- Write clean, organized code with comments for maintainability.\n"
-    "- Output ONLY the JSON object. No markdown, no explanation, no extra text."
+    "- Output ONLY the JSON object. No markdown, no explanation, no extra text.\n\n"
+    "CRITICAL — JSON STRING ESCAPING: All file content goes inside JSON "
+    "string values, which follow standard JSON escaping rules. "
+    "Valid JSON escapes (\\n newline, \\t tab, \\\" quote, \\\\ backslash, "
+    "\\uXXXX unicode) must be written EXACTLY as those single-backslash "
+    "forms — do NOT double them, do NOT add extra backslashes. Only "
+    "characters that are NOT valid JSON escapes need special handling: "
+    "regex/CSS sequences like \\s \\d \\w \\S \\D \\W, or a literal "
+    "backslash in text (e.g. Windows path), must be written as \\\\s "
+    "\\\\d \\\\w etc. — i.e. escaped so they become a literal backslash "
+    "followed by that letter, NOT interpreted as a JSON control escape. "
+    "Rule of thumb: if the character after the backslash is n, t, r, b, f, "
+    "\", \\, /, or u — leave it alone, it's already correct JSON. If it's "
+    "anything else (s, d, w, a Windows path segment, etc.) — that's where "
+    "doubling is required."
+    "CRITICAL — DOUBLE-QUOTE ESCAPING: Every double-quote character that "
+    "appears WITHIN a file's content (HTML attribute values, CSS content "
+    "properties, JS string literals, inline styles) MUST be escaped as \\\" "
+    "inside the JSON string. This applies even when the quote is inside "
+    "nested markup, e.g. writing <div class=\\\"card\\\"> not "
+    "<div class=\\\"card\\\">  with a bare quote. PREFER single quotes for "
+    "HTML attributes wherever valid (class='card' instead of class=\"card\") "
+    "to minimize escaping — HTML permits both. Reserve double-quotes only "
+    "where required (e.g. JSON-LD blocks, existing convention in prior "
+    "phase files) and escape them without exception in those cases. Before "
+    "finalizing output, mentally re-scan every string value for a bare, "
+    "unescaped \" — a single miss breaks the entire JSON parse."
 )
 
 
@@ -167,7 +193,7 @@ def run_execute_loop(client, run_state):
             run_state.save_todo(phases)
             break
 
-        logger.info("Executing phase: %s (attempt %d/%d)", phase_id, retries + 1, max_retries + 1)
+        logger.info("Executing phase: %s (attempt %d/%d)", phase_id, retries + 1, max_retries)
 
         context_files = _collect_context_files(run_state, phase)
         cv_artifacts = _collect_cv_artifacts(run_state)
