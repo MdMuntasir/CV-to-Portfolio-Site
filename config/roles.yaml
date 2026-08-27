@@ -2,6 +2,7 @@
 thinking:
   provider: openrouter
   model: "nvidia/nemotron-3-ultra-550b-a55b:free"
+  fallback_model: "openrouter/free"
 
 execution:
   provider: openrouter
