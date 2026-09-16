@@ -77,6 +77,7 @@ def run_pipeline(client, cv_pdf=None, cv_text=None, resume_run_id=None, output_d
             logger.info("Stage [%s] complete", name)
         except Exception as e:
             logger.error("Stage [%s] failed: %s — run dir preserved at %s", name, e, run_state.run_dir)
+            e.run_id = run_state.run_id
             raise
 
     logger.info("Finalizing site...")

@@ -26,6 +26,15 @@ class ProviderResponseError(ProviderError):
     pass
 
 
+class RateLimitExceeded(ProviderResponseError):
+    """Raised by RateLimiter when a model's local quota (RPM/TPM/RPD) is used
+    up. Distinct from generic ProviderResponseError so chat() can treat it as
+    retryable-with-fallback even though it never touched the network — a
+    daily-limit hit on the primary model shouldn't abort the whole run when a
+    fallback model is configured."""
+    pass
+
+
 DEFAULT_CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
 DEFAULT_MAX_ATTEMPTS = 3
 REQUEST_TIMEOUT = 120
@@ -77,9 +86,10 @@ class RateLimiter:
         limits = self._limits_for(model_name)
 
         if self._rpd_used(model_name) >= limits["rpd"]:
-            raise ProviderResponseError(
+            raise RateLimitExceeded(
                 f"Gemini Free Tier RPD limit ({limits['rpd']}) reached for "
-                f"{model_name}. Wait until tomorrow or disable free_mode."
+                f"{model_name}. Wait until tomorrow, disable free_mode, or "
+                f"configure a fallback_model in roles.yaml."
             )
 
         # Wait for RPM slot
@@ -266,6 +276,8 @@ class ProviderClient:
 
     @staticmethod
     def _is_retryable_error(error):
+        if isinstance(error, RateLimitExceeded):
+            return True
         s = str(error)
         return any(code in s for code in ("429", "500", "502", "503"))
 

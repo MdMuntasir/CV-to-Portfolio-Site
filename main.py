@@ -87,7 +87,7 @@ def _check_pdf(path_str):
     return str(p.resolve())
 
 
-def _pick_output(args_output, run_id):
+def _pick_output(args_output):
     if args_output:
         return str(Path(args_output).resolve())
     return None
@@ -115,28 +115,41 @@ def cmd_generate(args):
         print(f"Configuration error: {e}")
         sys.exit(1)
 
+    output_dir = _pick_output(args.output)
+
     try:
         run_state = run_pipeline(
             client,
             cv_pdf=cv_pdf,
             cv_text=cv_text,
-            output_dir=_pick_output(args.output, None),
+            output_dir=output_dir,
         )
+        print(f"\nDone. Run ID: {run_state.run_id}")
+        print(f"Site saved to: {output_dir or f'output/{run_state.run_id}'}")
         sys.exit(0)
     except ProviderConfigError as e:
         print(f"\nAPI Key Error: {e}")
         print("  -> Set the required key in your .env file (see .env.example).")
         sys.exit(1)
     except ProviderResponseError as e:
-        print(f"\nProvider Error: {e}")
-        print("  -> This may be a transient issue. Retry with 'resume' if a run dir exists.")
+        _print_resume_hint("Provider Error", e)
         sys.exit(1)
     except RunStateError as e:
-        print(f"\nRun State Error: {e}")
+        _print_resume_hint("Run State Error", e)
         sys.exit(1)
     except Exception as e:
-        print(f"\nUnexpected error: {e}")
+        _print_resume_hint("Unexpected error", e)
         sys.exit(1)
+
+
+def _print_resume_hint(label, e):
+    run_id = getattr(e, "run_id", None)
+    print(f"\n{label}: {e}")
+    if run_id:
+        print(f"  -> Run preserved as '{run_id}'. Resume with:")
+        print(f"       python main.py resume --run-id {run_id}")
+    else:
+        print("  -> This may be a transient issue. Check runs/ for a directory to resume, if any exists.")
 
 
 def cmd_resume(args):
@@ -154,22 +167,24 @@ def cmd_resume(args):
         if args.free is not None:
             client_kwargs["free_mode"] = args.free
         client = ProviderClient(**client_kwargs)
-        _rp(
+        output_dir = _pick_output(args.output)
+        run_state = _rp(
             client,
             resume_run_id=run_id,
-            output_dir=_pick_output(args.output, run_id),
+            output_dir=output_dir,
         )
+        print(f"\nDone. Run ID: {run_state.run_id}")
+        print(f"Site saved to: {output_dir or f'output/{run_state.run_id}'}")
         sys.exit(0)
     except ProviderConfigError as e:
         print(f"\nAPI Key Error: {e}")
         print("  -> Set the required key in your .env file (see .env.example).")
         sys.exit(1)
     except ProviderResponseError as e:
-        print(f"\nProvider Error: {e}")
-        print("  -> The run directory has been preserved. Re-run 'resume' after fixing.")
+        _print_resume_hint("Provider Error", e)
         sys.exit(1)
     except Exception as e:
-        print(f"\nUnexpected error during resume: {e}")
+        _print_resume_hint("Unexpected error during resume", e)
         sys.exit(1)
 
 

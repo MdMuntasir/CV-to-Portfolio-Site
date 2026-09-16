@@ -1,19 +1,33 @@
+import re
 import logging
 from pathlib import Path
-from core.state import call_with_json_repair
+
+from core.validate import validate_file
 
 logger = logging.getLogger(__name__)
 
 EXEC_CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "execution.yaml"
 
+# Weak models reliably break JSON-escaped file content (regex/CSS \s \d, nested
+# quotes, stray backslashes). Delimiter format removes escaping entirely —
+# there is nothing for a small model to get wrong.
+FILE_START_RE = re.compile(r"===FILE:\s*(.+?)\s*===\r?\n")
+FILE_END = "===ENDFILE==="
+
 EXEC_SYSTEM_PROMPT = (
     "You are an expert web developer generating files for a static portfolio "
     "website. You will receive a build phase with instructions and relevant "
-    "context files. Output ONLY a JSON object with a single key \"files\" "
-    "containing an array of file objects. Each file object must have:\n"
-    "- \"path\": relative path from site root (e.g., \"index.html\", "
-    "\"styles/main.css\")\n"
-    "- \"content\": full file content as a string\n\n"
+    "context files.\n\n"
+    "OUTPUT FORMAT — STRICT, FOLLOW EXACTLY:\n"
+    "Output each file as one block in exactly this form, and nothing else "
+    "before, between, or after the blocks (no markdown fences, no JSON, no "
+    "commentary, no explanation):\n\n"
+    "===FILE: relative/path.ext===\n"
+    "<full file content here, verbatim, byte for byte — no escaping of any "
+    "kind, no quoting rules to worry about>\n"
+    "===ENDFILE===\n\n"
+    "One block per file. Never use the literal strings \"===FILE:\" or "
+    "\"===ENDFILE===\" anywhere inside actual file content.\n\n"
     "HARD CONSTRAINT: The output must be implementable as PLAIN HTML + CSS + "
     "vanilla JavaScript only. NO frameworks (React, Vue, Svelte, etc.), NO "
     "build tools (Vite, Webpack, etc.), NO npm packages, NO TypeScript. The "
@@ -35,33 +49,19 @@ EXEC_SYSTEM_PROMPT = (
     "ratios).\n"
     "- Mobile-first responsive design.\n"
     "- Write clean, organized code with comments for maintainability.\n"
-    "- Output ONLY the JSON object. No markdown, no explanation, no extra text.\n\n"
-    "CRITICAL — JSON STRING ESCAPING: All file content goes inside JSON "
-    "string values, which follow standard JSON escaping rules. "
-    "Valid JSON escapes (\\n newline, \\t tab, \\\" quote, \\\\ backslash, "
-    "\\uXXXX unicode) must be written EXACTLY as those single-backslash "
-    "forms — do NOT double them, do NOT add extra backslashes. Only "
-    "characters that are NOT valid JSON escapes need special handling: "
-    "regex/CSS sequences like \\s \\d \\w \\S \\D \\W, or a literal "
-    "backslash in text (e.g. Windows path), must be written as \\\\s "
-    "\\\\d \\\\w etc. — i.e. escaped so they become a literal backslash "
-    "followed by that letter, NOT interpreted as a JSON control escape. "
-    "Rule of thumb: if the character after the backslash is n, t, r, b, f, "
-    "\", \\, /, or u — leave it alone, it's already correct JSON. If it's "
-    "anything else (s, d, w, a Windows path segment, etc.) — that's where "
-    "doubling is required."
-    "CRITICAL — DOUBLE-QUOTE ESCAPING: Every double-quote character that "
-    "appears WITHIN a file's content (HTML attribute values, CSS content "
-    "properties, JS string literals, inline styles) MUST be escaped as \\\" "
-    "inside the JSON string. This applies even when the quote is inside "
-    "nested markup, e.g. writing <div class=\\\"card\\\"> not "
-    "<div class=\\\"card\\\">  with a bare quote. PREFER single quotes for "
-    "HTML attributes wherever valid (class='card' instead of class=\"card\") "
-    "to minimize escaping — HTML permits both. Reserve double-quotes only "
-    "where required (e.g. JSON-LD blocks, existing convention in prior "
-    "phase files) and escape them without exception in those cases. Before "
-    "finalizing output, mentally re-scan every string value for a bare, "
-    "unescaped \" — a single miss breaks the entire JSON parse."
+    "- When a target file already exists in CONTEXT, you are FULLY REWRITING "
+    "it — you must carry forward every section/feature it already had, then "
+    "add the new content. Never silently drop existing sections, ids, or "
+    "functionality. If unsure what existed before, check the CONTEXT files.\n"
+)
+
+REPAIR_MSG = (
+    "Your previous response did not follow the required output format, or no "
+    "files were found in it. Resend the SAME content using EXACTLY this "
+    "format — nothing outside the blocks:\n\n"
+    "===FILE: relative/path.ext===\n"
+    "<file content>\n"
+    "===ENDFILE===\n"
 )
 
 
@@ -88,6 +88,14 @@ def _find_next_phase(phases):
     return None
 
 
+def _has_deadlock(phases):
+    """True if pending phases remain but none are runnable (broken dep graph)."""
+    pending = [p for p in phases if p.get("status") == "pending"]
+    if not pending:
+        return False
+    return _find_next_phase(phases) is None
+
+
 def _phase_done(phases, phase_id):
     for p in phases:
         if p["id"] == phase_id:
@@ -102,17 +110,6 @@ def _phase_failed(phases, phase_id, error_msg):
             p["status"] = "failed"
             p["error"] = error_msg
             break
-
-
-def _read_site_file(run_state, rel_path):
-    site_dir = run_state.run_dir / "site"
-    file_path = site_dir / rel_path
-    if file_path.is_file():
-        try:
-            return file_path.read_text(encoding="utf-8")
-        except Exception:
-            pass
-    return None
 
 
 def _collect_context_files(run_state, phase):
@@ -141,17 +138,93 @@ def _collect_cv_artifacts(run_state):
     return artifacts
 
 
-def _write_site_files(run_state, files):
-    site_dir = run_state.run_dir / "site"
-    site_dir.mkdir(parents=True, exist_ok=True)
+def _parse_files(raw_text):
+    """Parse ===FILE: path=== ... ===ENDFILE=== blocks. No JSON, no escaping."""
+    files = []
+    for m in FILE_START_RE.finditer(raw_text):
+        path = m.group(1).strip()
+        body_start = m.end()
+        end_idx = raw_text.find(FILE_END, body_start)
+        if end_idx == -1:
+            continue
+        content = raw_text[body_start:end_idx]
+        # strip exactly one trailing newline the template puts before ===ENDFILE===
+        if content.endswith("\n"):
+            content = content[:-1]
+        if path:
+            files.append({"path": path, "content": content})
+    return files
+
+
+def _generate_files(client, messages, max_tokens):
+    raw = client.chat("execution", messages, max_tokens=max_tokens)
+    files = _parse_files(raw)
+    if files:
+        return files
+
+    logger.warning("No files parsed from execution response, attempting format repair")
+    raw2 = client.chat(
+        "execution",
+        messages + [
+            {"role": "assistant", "content": raw},
+            {"role": "user", "content": REPAIR_MSG},
+        ],
+        max_tokens=max_tokens,
+    )
+    files2 = _parse_files(raw2)
+    if files2:
+        return files2
+
+    raise ValueError(
+        "Execution model returned no parseable files after format-repair retry. "
+        f"Tail of last response: {raw2[-200:]!r}"
+    )
+
+
+def _validate_and_stage(site_dir, files):
+    """Validate each file; reject the whole phase if anything looks broken.
+
+    All-or-nothing on purpose — partial writes leave the site in a state that
+    is hard to reason about on the next retry.
+    """
+    problems = []
+    staged = []
     for f in files:
         rel_path = f.get("path", "").strip()
         content = f.get("content", "")
         if not rel_path:
             continue
-        dest = site_dir / rel_path
+
+        ok, err = validate_file(rel_path, content)
+        if not ok:
+            problems.append(f"{rel_path}: {err}")
+            continue
+
+        existing = site_dir / rel_path
+        if existing.is_file():
+            try:
+                old_len = len(existing.read_text(encoding="utf-8"))
+                new_len = len(content)
+                if old_len > 200 and new_len < old_len * 0.5:
+                    problems.append(
+                        f"{rel_path}: rewrite shrank from {old_len} to {new_len} chars — "
+                        f"looks like earlier content was dropped, not carried forward"
+                    )
+                    continue
+            except Exception:
+                pass
+
+        staged.append({"path": rel_path, "content": content})
+    return staged, problems
+
+
+def _write_site_files(run_state, files):
+    site_dir = run_state.run_dir / "site"
+    site_dir.mkdir(parents=True, exist_ok=True)
+    for f in files:
+        dest = site_dir / f["path"]
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(content, encoding="utf-8")
+        dest.write_text(f["content"], encoding="utf-8")
 
 
 def run_execute_loop(client, run_state):
@@ -162,8 +235,7 @@ def run_execute_loop(client, run_state):
     max_tokens = config.get("max_tokens_execution", 32000)
 
     phases = run_state.load_todo()
-    
-    # Reset failed phases back to pending for resumability (if retries not exhausted)
+
     for p in phases:
         if p.get("status") == "failed":
             retries = p.get("retries", 0)
@@ -172,13 +244,18 @@ def run_execute_loop(client, run_state):
                 logger.info("Resetting phase %s from failed to pending for retry", p["id"])
             else:
                 logger.warning("Phase %s failed and exhausted retries, leaving as failed", p["id"])
-    
+
     run_state.save_todo(phases)
 
+    site_dir = run_state.run_dir / "site"
     total_calls = 0
     completed_phases = 0
 
     while completed_phases < max_phases:
+        if _has_deadlock(phases):
+            logger.error("Dependency deadlock: pending phases exist but none are runnable")
+            break
+
         phase = _find_next_phase(phases)
         if not phase:
             logger.info("All phases completed")
@@ -201,19 +278,19 @@ def run_execute_loop(client, run_state):
         parts = []
         if context_files:
             parts.append(
-                "\n\n".join(
-                    f"--- {path} ---\n{content}"
-                    for path, content in context_files.items()
-                )
+                "\n\n".join(f"--- {path} ---\n{content}" for path, content in context_files.items())
             )
         if cv_artifacts:
             parts.append(
-                "\n\n".join(
-                    f"--- {path} ---\n{content}"
-                    for path, content in cv_artifacts.items()
-                )
+                "\n\n".join(f"--- {path} ---\n{content}" for path, content in cv_artifacts.items())
             )
         context_str = "\n\n".join(parts) if parts else "(none)"
+
+        prior_error = phase.get("error")
+        error_note = (
+            f"\nPREVIOUS ATTEMPT FAILED — YOU MUST FIX THIS SPECIFIC ISSUE:\n{prior_error}\n"
+            if prior_error else ""
+        )
 
         messages = [
             {"role": "system", "content": EXEC_SYSTEM_PROMPT},
@@ -223,7 +300,8 @@ def run_execute_loop(client, run_state):
                     f"PHASE: {phase['title']}\n"
                     f"PHASE ID: {phase_id}\n"
                     f"INSTRUCTIONS:\n{phase['instructions']}\n\n"
-                    f"TARGET FILES: {phase.get('target_files', [])}\n\n"
+                    f"TARGET FILES: {phase.get('target_files', [])}\n"
+                    f"{error_note}\n"
                     f"CONTEXT:\n{context_str}"
                 ),
             },
@@ -234,17 +312,21 @@ def run_execute_loop(client, run_state):
             if total_calls > max_total_calls:
                 raise RuntimeError(f"Max total LLM calls exceeded ({max_total_calls})")
 
-            result = call_with_json_repair(client, "execution", messages, max_tokens=max_tokens)
-            files = result.get("files", [])
-
+            files = _generate_files(client, messages, max_tokens)
             if not files:
                 raise ValueError("Execution model returned no files")
 
-            _write_site_files(run_state, files)
+            staged, problems = _validate_and_stage(site_dir, files)
+            if problems:
+                raise ValueError("Validation failed:\n" + "\n".join(problems))
+            if not staged:
+                raise ValueError("No valid files survived validation")
+
+            _write_site_files(run_state, staged)
             _phase_done(phases, phase_id)
             run_state.save_todo(phases)
             completed_phases += 1
-            logger.info("Phase %s completed, wrote %d files", phase_id, len(files))
+            logger.info("Phase %s completed, wrote %d files", phase_id, len(staged))
 
         except Exception as e:
             logger.exception("Phase %s failed: %s", phase_id, e)
@@ -254,9 +336,13 @@ def run_execute_loop(client, run_state):
 
     run_state.save_todo(phases)
 
-    # Check if any phases failed and didn't exhaust retries
     failed_phases = [p for p in phases if p.get("status") == "failed" and p.get("retries", 0) <= max_retries]
     if failed_phases:
-        return {"phases_completed": completed_phases, "total_calls": total_calls, "success": False, "failed_phases": [p["id"] for p in failed_phases]}
-    
+        return {
+            "phases_completed": completed_phases,
+            "total_calls": total_calls,
+            "success": False,
+            "failed_phases": [p["id"] for p in failed_phases],
+        }
+
     return {"phases_completed": completed_phases, "total_calls": total_calls, "success": True}
