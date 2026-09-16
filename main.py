@@ -125,7 +125,7 @@ def cmd_generate(args):
             output_dir=output_dir,
         )
         print(f"\nDone. Run ID: {run_state.run_id}")
-        print(f"Site saved to: {output_dir or f'output/{run_state.run_id}'}")
+        print(f"Site saved to: {(output_dir or 'output')}/{run_state.run_id}")
         sys.exit(0)
     except ProviderConfigError as e:
         print(f"\nAPI Key Error: {e}")
@@ -174,7 +174,7 @@ def cmd_resume(args):
             output_dir=output_dir,
         )
         print(f"\nDone. Run ID: {run_state.run_id}")
-        print(f"Site saved to: {output_dir or f'output/{run_state.run_id}'}")
+        print(f"Site saved to: {(output_dir or 'output')}/{run_state.run_id}")
         sys.exit(0)
     except ProviderConfigError as e:
         print(f"\nAPI Key Error: {e}")

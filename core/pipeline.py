@@ -81,10 +81,15 @@ def run_pipeline(client, cv_pdf=None, cv_text=None, resume_run_id=None, output_d
             raise
 
     logger.info("Finalizing site...")
-    success = finalize_and_cleanup(run_state, output_dir)
+    # finalize_site() only auto-appends run_id when output_dir is None — an
+    # explicit output_dir is otherwise treated as the literal destination and
+    # gets written into directly, with no run_id subfolder. Nest it here so
+    # the on-disk layout (<output_dir>/<run_id>/) is the same either way.
+    final_output_dir = Path(output_dir) / run_state.run_id if output_dir else None
+    success = finalize_and_cleanup(run_state, final_output_dir)
 
     if success:
-        logger.info("Pipeline finished successfully — site at output/%s", run_state.run_id)
+        logger.info("Pipeline finished successfully — site at %s", final_output_dir or f"output/{run_state.run_id}")
     else:
         logger.warning("Pipeline finished with issues — run dir preserved at %s", run_state.run_dir)
 
